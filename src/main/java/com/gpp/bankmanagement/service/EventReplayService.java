@@ -7,7 +7,6 @@ import com.gpp.bankmanagement.repository.BankAccountEventRepository;
 import com.gpp.bankmanagement.repository.SnapshotRepository;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -26,15 +25,29 @@ public class EventReplayService {
 
     public Optional<BankAccountState> loadCurrentState(String accountId) {
         Optional<SnapshotEntity> snapshot = snapshotRepository.findFirstByAggregateIdOrderByLastEventNumberDesc(accountId);
-        return loadFromSnapshot(accountId, snapshot, null);
+        return loadFromSnapshot(accountId, snapshot, null, null);
     }
 
     public Optional<BankAccountState> loadStateAt(String accountId, OffsetDateTime timestamp) {
-        Optional<SnapshotEntity> snapshot = snapshotRepository.findFirstByAggregateIdAndCreatedAtLessThanEqualOrderByLastEventNumberDesc(accountId, timestamp.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime());
-        return loadFromSnapshot(accountId, snapshot, timestamp);
+        OffsetDateTime normalizedTimestamp = timestamp.withOffsetSameInstant(ZoneOffset.UTC);
+        List<BankAccountEventEntity> eventsUpToTimestamp = eventRepository
+                .findByAggregateIdAndTimestampLessThanEqualOrderByEventNumberAsc(accountId, normalizedTimestamp);
+
+        if (eventsUpToTimestamp.isEmpty()) {
+            return Optional.empty();
+        }
+
+        int cutoffEventNumber = eventsUpToTimestamp.get(eventsUpToTimestamp.size() - 1).getEventNumber();
+        Optional<SnapshotEntity> snapshot = snapshotRepository
+                .findFirstByAggregateIdAndLastEventNumberLessThanEqualOrderByLastEventNumberDesc(accountId, cutoffEventNumber);
+
+        return loadFromSnapshot(accountId, snapshot, normalizedTimestamp, eventsUpToTimestamp);
     }
 
-    private Optional<BankAccountState> loadFromSnapshot(String accountId, Optional<SnapshotEntity> snapshot, OffsetDateTime timestamp) {
+    private Optional<BankAccountState> loadFromSnapshot(String accountId,
+                                                        Optional<SnapshotEntity> snapshot,
+                                                        OffsetDateTime timestamp,
+                                                        List<BankAccountEventEntity> preloadedEvents) {
         BankAccountState state;
         int snapshotLastEventNumber = 0;
 
@@ -46,7 +59,16 @@ public class EventReplayService {
         }
 
         List<BankAccountEventEntity> events;
-        if (timestamp == null) {
+        if (preloadedEvents != null) {
+            if (snapshotLastEventNumber > 0) {
+                final int finalSnapshotLastEventNumber = snapshotLastEventNumber;
+                events = preloadedEvents.stream()
+                        .filter(event -> event.getEventNumber() > finalSnapshotLastEventNumber)
+                        .toList();
+            } else {
+                events = preloadedEvents;
+            }
+        } else if (timestamp == null) {
             events = snapshotLastEventNumber == 0
                     ? eventRepository.findByAggregateIdOrderByEventNumberAsc(accountId)
                     : eventRepository.findByAggregateIdAndEventNumberGreaterThanOrderByEventNumberAsc(accountId, snapshotLastEventNumber);

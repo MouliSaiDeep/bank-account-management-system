@@ -12,7 +12,6 @@ import com.gpp.bankmanagement.exception.ConflictException;
 import com.gpp.bankmanagement.exception.NotFoundException;
 import com.gpp.bankmanagement.repository.BankAccountEventRepository;
 import com.gpp.bankmanagement.repository.SnapshotRepository;
-import com.gpp.bankmanagement.repository.TransactionHistoryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,18 +29,15 @@ public class BankAccountCommandService {
     private static final String AGGREGATE_TYPE = "BankAccount";
 
     private final BankAccountEventRepository eventRepository;
-    private final TransactionHistoryRepository transactionHistoryRepository;
     private final SnapshotRepository snapshotRepository;
     private final EventReplayService eventReplayService;
     private final ProjectionService projectionService;
 
     public BankAccountCommandService(BankAccountEventRepository eventRepository,
-                                     TransactionHistoryRepository transactionHistoryRepository,
                                      SnapshotRepository snapshotRepository,
                                      EventReplayService eventReplayService,
                                      ProjectionService projectionService) {
         this.eventRepository = eventRepository;
-        this.transactionHistoryRepository = transactionHistoryRepository;
         this.snapshotRepository = snapshotRepository;
         this.eventReplayService = eventReplayService;
         this.projectionService = projectionService;
@@ -92,12 +88,12 @@ public class BankAccountCommandService {
         BankAccountState state = eventReplayService.loadCurrentState(accountId)
                 .orElseThrow(() -> new NotFoundException("Account not found."));
 
-        var existingTransaction = transactionHistoryRepository.findById(request.transactionId());
-        if (existingTransaction.isPresent()) {
-            if (accountId.equals(existingTransaction.get().getAccountId())) {
+        var existingTransactionAccountId = eventRepository.findAggregateIdByTransactionId(request.transactionId());
+        if (existingTransactionAccountId.isPresent()) {
+            if (accountId.equals(existingTransactionAccountId.get())) {
                 return;
             }
-            throw new ConflictException("Transaction ID already exists.");
+            throw new BadRequestException("Transaction ID already exists for another account.");
         }
 
         if (!state.isOpen()) {
@@ -137,12 +133,12 @@ public class BankAccountCommandService {
         BankAccountState state = eventReplayService.loadCurrentState(accountId)
                 .orElseThrow(() -> new NotFoundException("Account not found."));
 
-        var existingTransaction = transactionHistoryRepository.findById(request.transactionId());
-        if (existingTransaction.isPresent()) {
-            if (accountId.equals(existingTransaction.get().getAccountId())) {
+        var existingTransactionAccountId = eventRepository.findAggregateIdByTransactionId(request.transactionId());
+        if (existingTransactionAccountId.isPresent()) {
+            if (accountId.equals(existingTransactionAccountId.get())) {
                 return;
             }
-            throw new ConflictException("Transaction ID already exists.");
+            throw new BadRequestException("Transaction ID already exists for another account.");
         }
 
         if (!state.isOpen()) {
@@ -215,11 +211,12 @@ public class BankAccountCommandService {
             return;
         }
 
-        UUID snapshotId = snapshotRepository.findFirstByAggregateIdOrderByLastEventNumberDesc(accountId)
-            .map(SnapshotEntity::getSnapshotId)
-            .orElse(UUID.randomUUID());
+        snapshotRepository.findFirstByAggregateIdOrderByLastEventNumberDesc(accountId)
+                .ifPresent(snapshotRepository::delete);
+        snapshotRepository.flush();
+
         SnapshotEntity snapshot = new SnapshotEntity(
-            snapshotId,
+                UUID.randomUUID(),
                 accountId,
                 state.toSnapshotData(),
                 eventNumber,
