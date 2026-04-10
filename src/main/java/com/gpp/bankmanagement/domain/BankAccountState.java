@@ -78,7 +78,7 @@ public class BankAccountState {
         Map<String, Object> snapshotData = new HashMap<>();
         snapshotData.put("accountId", accountId);
         snapshotData.put("ownerName", ownerName);
-        snapshotData.put("balance", balance);
+        snapshotData.put("balance", balance.toPlainString());
         snapshotData.put("currency", currency);
         snapshotData.put("status", status.name());
         snapshotData.put("lastEventNumber", lastEventNumber);
