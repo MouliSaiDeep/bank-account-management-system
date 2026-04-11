@@ -90,10 +90,7 @@ public class BankAccountCommandService {
 
         var existingTransactionAccountId = eventRepository.findAggregateIdByTransactionId(request.transactionId());
         if (existingTransactionAccountId.isPresent()) {
-            if (accountId.equals(existingTransactionAccountId.get())) {
-                return;
-            }
-            throw new BadRequestException("Transaction ID already exists for another account.");
+            throw new ConflictException("Transaction ID already exists.");
         }
 
         if (!state.isOpen()) {
@@ -135,10 +132,7 @@ public class BankAccountCommandService {
 
         var existingTransactionAccountId = eventRepository.findAggregateIdByTransactionId(request.transactionId());
         if (existingTransactionAccountId.isPresent()) {
-            if (accountId.equals(existingTransactionAccountId.get())) {
-                return;
-            }
-            throw new BadRequestException("Transaction ID already exists for another account.");
+            throw new ConflictException("Transaction ID already exists.");
         }
 
         if (!state.isOpen()) {
